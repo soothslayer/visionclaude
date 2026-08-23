@@ -26,10 +26,10 @@ targets:
       base:
         INFOPLIST_FILE: ClaudeVision/Info.plist
         GENERATE_INFOPLIST_FILE: NO
-        PRODUCT_BUNDLE_IDENTIFIER: com.claudevision.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.kiran.visionclaude
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: "1"
-        DEVELOPMENT_TEAM: ""
+        DEVELOPMENT_TEAM: "BU2GQ3FA4S"
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
