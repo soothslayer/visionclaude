@@ -9,16 +9,30 @@ class DirectVLMClient: VLMService {
     var onDisconnect: (() -> Void)?
     var onError: ((String) -> Void)?
     
-    private let provider: VLMProvider
-    private let model: String
+    private var provider: VLMProvider
+    private var model: String
     private var apiKey: String? {
-        KeychainHelper.shared.load(forKey: "\(provider.rawValue)_APIKey")
+        KeychainHelper.shared.load(forKey: "vlm_\(provider.rawValue)")
     }
     
-    init(provider: VLMProvider, model: String) {
-        self.provider = provider
-        self.model = model
+    init(config: ClaudeConfig) {
+        self.provider = config.vlmProvider
+        self.model = config.selectedModelId
     }
+    
+    func updateConfig(_ config: ClaudeConfig) {
+        self.provider = config.vlmProvider
+        self.model = config.selectedModelId
+    }
+    
+    func testConnection() async throws {
+        guard let key = apiKey, !key.isEmpty else {
+            throw NSError(domain: "DirectVLM", code: 0, userInfo: [NSLocalizedDescriptionKey: "No API key set for \(provider.rawValue)"])
+        }
+        // Simple test: send a minimal request
+        let _ = try await performRequest(key: key, text: "Say hello in one word.", imageData: nil, systemPrompt: nil, history: [])
+    }
+
     
     func connect() async {
         isConnected = true
@@ -74,7 +88,7 @@ class DirectVLMClient: VLMService {
         var messages: [[String: Any]] = []
         for msg in history {
             messages.append([
-                "role": msg.role.rawValue == "user" ? "user" : "assistant",
+                "role": msg.role == .user ? "user" : "assistant",
                 "content": msg.text
             ])
         }
@@ -137,7 +151,7 @@ class DirectVLMClient: VLMService {
         var contents: [[String: Any]] = []
         for msg in history {
             contents.append([
-                "role": msg.role.rawValue == "user" ? "user" : "model",
+                "role": msg.role == .user ? "user" : "model",
                 "parts": [["text": msg.text]]
             ])
         }
@@ -207,7 +221,7 @@ class DirectVLMClient: VLMService {
         
         for msg in history {
             messages.append([
-                "role": msg.role.rawValue == "user" ? "user" : "assistant",
+                "role": msg.role == .user ? "user" : "assistant",
                 "content": msg.text
             ])
         }
