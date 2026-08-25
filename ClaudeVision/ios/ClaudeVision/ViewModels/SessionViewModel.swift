@@ -18,7 +18,7 @@ class SessionViewModel: ObservableObject {
     @Published var isConnected: Bool = false
     @Published var errorMessage: String?
     @Published var isProcessing: Bool = false
-    @Published var connectionMode: ClaudeBridge.ConnectionMode = .channel
+    @Published var connectionMode: AppConnectionMode = .direct
 
     @Published var config: ClaudeConfig {
         didSet {
@@ -29,6 +29,7 @@ class SessionViewModel: ObservableObject {
             )
             speechManager.setVoice(config.elevenLabsVoiceId)
             speechManager.setPauseThreshold(config.speechPauseThreshold)
+            connectionMode = config.appConnectionMode
             config.save()
         }
     }
@@ -48,6 +49,8 @@ class SessionViewModel: ObservableObject {
     @Published var codeToastDetectedCode: DetectedCode?
 
     let bridge: ClaudeBridge
+    var directClient: DirectVLMClient?
+    private var vlmService: VLMService { config.appConnectionMode == .direct ? (directClient ?? bridge) : bridge }
     let speechManager = SpeechManager()
     let cameraManager = CameraManager()
     let rayBanManager = RayBanManager()
@@ -60,6 +63,11 @@ class SessionViewModel: ObservableObject {
         setupBridgeCallbacks()
         setupCodeDetection()
         rayBanManager.startMonitoringRegistration()
+        connectionMode = config.appConnectionMode
+        if config.appConnectionMode == .direct {
+            directClient = DirectVLMClient(config: config)
+            setupDirectClientCallbacks()
+        }
         speechManager.configureElevenLabs(
             apiKey: config.elevenLabsAPIKey,
             voiceId: config.elevenLabsVoiceId
@@ -82,11 +90,11 @@ class SessionViewModel: ObservableObject {
         // Forward bridge connection state
         bridge.$isConnected
             .receive(on: RunLoop.main)
-            .assign(to: &$isConnected)
-
-        bridge.$mode
-            .receive(on: RunLoop.main)
-            .assign(to: &$connectionMode)
+            .sink { [weak self] connected in
+                guard let self, self.config.appConnectionMode == .channel else { return }
+                self.isConnected = connected
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Bridge Callbacks
@@ -133,6 +141,36 @@ class SessionViewModel: ObservableObject {
         bridge.onDisconnect = { [weak self] in
             Task { @MainActor in
                 self?.state = .disconnected
+            }
+        }
+    }
+
+    private func setupDirectClientCallbacks() {
+        directClient?.onReply = { [weak self] text, audioUrl in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.transcript.append(TranscriptMessage(role: .assistant, text: text))
+                self.isProcessing = false
+                self.state = .speaking
+                self.speechManager.speak(text)
+                self.observeSpeechCompletion()
+            }
+        }
+        directClient?.onStatus = { [weak self] status in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if status == "connected" {
+                    self.state = .idle
+                    self.errorMessage = nil
+                }
+            }
+        }
+        directClient?.onError = { [weak self] error in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.errorMessage = error
+                self.isProcessing = false
+                self.state = .idle
             }
         }
     }
@@ -190,18 +228,32 @@ class SessionViewModel: ObservableObject {
     func connect() async {
         errorMessage = nil
 
-        // Try channel mode first (WebSocket -> Claude Code session)
+        if config.appConnectionMode == .direct {
+            // Direct mode: no server needed
+            if directClient == nil {
+                directClient = DirectVLMClient(config: config)
+                setupDirectClientCallbacks()
+            }
+            directClient?.updateConfig(config)
+            await directClient?.connect()
+            isConnected = true
+            state = .idle
+            try? AudioSessionManager.shared.configureForVoiceChat()
+            startActiveFrameSource()
+            return
+        }
+
+        // Channel mode: connect to PC server
         bridge.mode = .channel
         bridge.connectWebSocket()
 
-        // Also check health endpoint for status
         do {
             let health = try await bridge.checkHealth()
             if health.status == "ok" {
                 print("[Session] Channel server health OK")
             }
         } catch {
-            print("[Session] Health check failed (channel may still connect via WS): \(error.localizedDescription)")
+            print("[Session] Health check failed: \(error.localizedDescription)")
         }
     }
 
@@ -210,8 +262,13 @@ class SessionViewModel: ObservableObject {
         speechManager.stopSpeaking()
         cameraManager.stop()
         rayBanManager.stop()
-        bridge.disconnect()
+        if config.appConnectionMode == .direct {
+            directClient?.disconnect()
+        } else {
+            bridge.disconnect()
+        }
         frameSourceStatus = .disconnected
+        isConnected = false
         state = .disconnected
     }
 
@@ -337,7 +394,7 @@ class SessionViewModel: ObservableObject {
 
         // Prepend mode system prompt as context
         let modeContext = modeManager.activeMode.systemPrompt
-        let fullText = "[Mode: \(modeManager.activeMode.name)] \(modeContext)\n\nUser: \(text)"
+        let systemPrompt = "[Mode: \(modeManager.activeMode.name)] \(modeContext)"
 
         // Grab latest frame
         var image: Data?
@@ -351,10 +408,22 @@ class SessionViewModel: ObservableObject {
             source = "rayban"
         }
 
-        if bridge.mode == .channel {
+        if config.appConnectionMode == .direct {
+            // Direct mode: send to VLM API
+            let recentHistory = Array(transcript.suffix(config.maxConversationHistory))
+            await vlmService.sendMessage(
+                text: text,
+                imageData: image,
+                systemPrompt: systemPrompt,
+                history: recentHistory
+            )
+            print("[Session] Sent to direct VLM: \"\(text)\" with \(image != nil ? "image" : "no image") [mode: \(modeManager.activeMode.name)]")
+            // Reply comes back via onReply callback
+
+        } else if bridge.mode == .channel {
+            let fullText = "\(systemPrompt)\n\nUser: \(text)"
             // Channel mode: send via WebSocket or HTTP upload
             if let imageData = image, imageData.count > 100_000 {
-                // Large images: use HTTP multipart (avoids base64 bloat)
                 do {
                     try await bridge.uploadImage(text: fullText, image: imageData, source: source)
                 } catch {
@@ -362,14 +431,13 @@ class SessionViewModel: ObservableObject {
                     bridge.sendMessage(text: fullText, image: imageData, source: source)
                 }
             } else {
-                // Small images or text-only: send via WebSocket
                 bridge.sendMessage(text: fullText, image: image, source: source)
             }
             print("[Session] Sent to channel: \"\(text)\" with \(image != nil ? "image" : "no image") [mode: \(modeManager.activeMode.name)]")
-            // Reply comes back via onReply callback — don't set isProcessing = false here
 
         } else {
             // Gateway mode: REST fallback
+            let fullText = "\(systemPrompt)\n\nUser: \(text)"
             do {
                 let response = try await bridge.chatREST(text: fullText, images: image.map { [$0] } ?? [])
                 transcript.append(TranscriptMessage(
@@ -404,6 +472,7 @@ class SessionViewModel: ObservableObject {
     func resetConversation() async {
         transcript.removeAll()
         bridge.resetConversation()
+        directClient?.resetConversation()
         errorMessage = nil
     }
 }

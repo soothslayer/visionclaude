@@ -8,6 +8,7 @@
     "start": "bun install --no-summary && bun server.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.120.0",
     "@modelcontextprotocol/sdk": "^1.0.0"
   },
   "devDependencies": {

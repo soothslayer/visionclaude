@@ -6,7 +6,7 @@ import AVFoundation
 /// - Gateway mode (REST → standalone gateway server, uses Claude API)
 ///
 /// Channel mode is the default and preferred mode.
-class ClaudeBridge: NSObject, ObservableObject, URLSessionWebSocketDelegate {
+class ClaudeBridge: NSObject, ObservableObject, VLMService, URLSessionWebSocketDelegate {
     @Published var isConnected: Bool = false
     @Published var mode: ConnectionMode = .channel
 
@@ -20,6 +20,7 @@ class ClaudeBridge: NSObject, ObservableObject, URLSessionWebSocketDelegate {
     var onStatus: ((String) -> Void)?
     var onThinking: ((String) -> Void)?
     var onDisconnect: (() -> Void)?
+    var onError: ((String) -> Void)?
 
     private var webSocket: URLSessionWebSocketTask?
     private var urlSession: URLSession?
@@ -40,6 +41,10 @@ class ClaudeBridge: NSObject, ObservableObject, URLSessionWebSocketDelegate {
     }
 
     // MARK: - Channel Mode (WebSocket)
+
+    func connect() async {
+        connectWebSocket()
+    }
 
     func connectWebSocket() {
         isManualDisconnect = false
@@ -166,6 +171,19 @@ class ClaudeBridge: NSObject, ObservableObject, URLSessionWebSocketDelegate {
         }
 
         print("[Bridge] Sent: \"\(text.prefix(60))\" source=\(source) image=\(image != nil)")
+    }
+
+    /// VLMService protocol conformance — forwards to channel/gateway send.
+    func sendMessage(text: String, imageData: Data?, systemPrompt: String?, history: [TranscriptMessage]) async {
+        if mode == .channel {
+            if let imageData, imageData.count > 100_000 {
+                try? await uploadImage(text: text, image: imageData, source: "iphone")
+            } else {
+                sendMessage(text: text, image: imageData, source: "iphone")
+            }
+        } else {
+            let _ = try? await chatREST(text: text, images: imageData.map { [$0] } ?? [])
+        }
     }
 
     /// Upload image via HTTP multipart (for large images, avoids base64 bloat over WS)

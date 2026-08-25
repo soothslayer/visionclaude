@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var isTesting = false
     @State private var showRayBanInstructions = false
     @State private var showAddCustomMode = false
+    @State private var showAPIKey = false
 
     // Anthropic brand accent
     private let accentColor = Color(red: 232/255, green: 123/255, blue: 53/255)
@@ -24,8 +25,18 @@ struct SettingsView: View {
                 // -- Connection Status --
                 connectionStatusSection
 
-                // -- Server Settings --
-                serverSection
+                // -- Connection Mode --
+                connectionModeSection
+
+                // -- Server Settings (Channel Mode only) --
+                if config.appConnectionMode == .channel {
+                    serverSection
+                }
+
+                // -- Direct Mode Settings --
+                if config.appConnectionMode == .direct {
+                    directModeSection
+                }
 
                 // -- Modes --
                 modesSection
@@ -90,7 +101,9 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(isConnected ? "Connected" : "Disconnected")
                         .font(.headline)
-                    Text(isConnected ? "Gateway is reachable" : "Tap Connect to establish a session")
+                    Text(isConnected
+                         ? (config.appConnectionMode == .direct ? "Direct API active" : "Gateway is reachable")
+                         : "Tap Connect to establish a session")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -103,6 +116,172 @@ struct SettingsView: View {
                     .shadow(color: isConnected ? .green.opacity(0.5) : .clear, radius: 4)
             }
             .padding(.vertical, 4)
+        }
+    }
+
+    // MARK: - Connection Mode
+
+    private var connectionModeSection: some View {
+        Section {
+            Picker("Mode", selection: $config.appConnectionMode) {
+                ForEach(AppConnectionMode.allCases) { mode in
+                    HStack {
+                        Image(systemName: mode == .channel ? "desktopcomputer" : "iphone")
+                        Text(mode.rawValue)
+                    }
+                    .tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+        } header: {
+            Label("Connection Mode", systemImage: "arrow.triangle.branch")
+                .textCase(nil)
+                .font(.subheadline.weight(.semibold))
+        } footer: {
+            Text(config.appConnectionMode == .channel
+                 ? "Channel Mode connects to a PC running Claude Code. Requires your PC and phone on the same network."
+                 : "Direct Mode calls AI APIs straight from your phone. No PC needed — just enter your API key.")
+        }
+    }
+
+    // MARK: - Direct Mode Settings
+
+    private var directModeSection: some View {
+        Section {
+            // Provider picker
+            Picker(selection: $config.vlmProvider) {
+                ForEach(VLMProvider.allCases) { provider in
+                    Label(provider.rawValue, systemImage: provider.iconName)
+                        .tag(provider)
+                }
+            } label: {
+                HStack(spacing: 14) {
+                    settingIcon("cpu", color: .blue)
+                    Text("Provider")
+                }
+            }
+            .onChange(of: config.vlmProvider) { _, newProvider in
+                config.selectedModelId = newProvider.defaultModel
+            }
+
+            // Model picker
+            let models = ProviderModel.models(for: config.vlmProvider)
+            Picker(selection: $config.selectedModelId) {
+                ForEach(models) { model in
+                    HStack {
+                        Text(model.displayName)
+                        if model.costTier == .free {
+                            Text("FREE")
+                                .font(.caption2.bold())
+                                .foregroundStyle(.green)
+                        }
+                    }
+                    .tag(model.id)
+                }
+            } label: {
+                HStack(spacing: 14) {
+                    settingIcon("brain", color: .purple)
+                    Text("Model")
+                }
+            }
+
+            // API Key
+            HStack(spacing: 14) {
+                settingIcon("key.fill", color: .orange)
+                Text("API Key")
+                Spacer()
+                Group {
+                    if showAPIKey {
+                        TextField("Enter API key", text: apiKeyBinding)
+                    } else {
+                        SecureField("Enter API key", text: apiKeyBinding)
+                    }
+                }
+                .multilineTextAlignment(.trailing)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                Button {
+                    showAPIKey.toggle()
+                } label: {
+                    Image(systemName: showAPIKey ? "eye.slash" : "eye")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            // Test API Button
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                testDirectAPI()
+            } label: {
+                HStack(spacing: 14) {
+                    settingIcon("bolt.horizontal.circle.fill", color: accentColor)
+                    Text("Test API Connection")
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    if isTesting {
+                        ProgressView()
+                            .tint(accentColor)
+                    } else if let result = testResult {
+                        HStack(spacing: 4) {
+                            Image(systemName: result.contains("OK") ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundStyle(result.contains("OK") ? .green : .red)
+                            Text(result)
+                                .font(.caption)
+                                .foregroundStyle(result.contains("OK") ? .green : .red)
+                        }
+                    } else {
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+
+            // Conversation History
+            HStack(spacing: 14) {
+                settingIcon("clock.arrow.circlepath", color: .indigo)
+                Text("History")
+                Spacer()
+                Picker("", selection: $config.maxConversationHistory) {
+                    Text("5 turns").tag(5)
+                    Text("10 turns").tag(10)
+                    Text("20 turns").tag(20)
+                }
+                .pickerStyle(.menu)
+            }
+        } header: {
+            Label("Direct Mode", systemImage: "iphone.and.arrow.right.outward")
+                .textCase(nil)
+                .font(.subheadline.weight(.semibold))
+        } footer: {
+            Text("Enter your API key for \(config.vlmProvider.rawValue). Keys are stored securely in your iPhone's Keychain.")
+        }
+    }
+
+    private var apiKeyBinding: Binding<String> {
+        Binding(
+            get: { KeychainHelper.shared.load(forKey: "vlm_\(config.vlmProvider.rawValue)") ?? "" },
+            set: { KeychainHelper.shared.save($0, forKey: "vlm_\(config.vlmProvider.rawValue)") }
+        )
+    }
+
+    private func testDirectAPI() {
+        isTesting = true
+        testResult = nil
+        Task {
+            let client = DirectVLMClient(config: config)
+            do {
+                try await client.testConnection()
+                testResult = "OK"
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } catch {
+                testResult = "Failed: \(error.localizedDescription)"
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            }
+            isTesting = false
         }
     }
 

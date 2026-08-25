@@ -10,6 +10,12 @@ struct ClaudeConfig: Codable {
     var elevenLabsVoiceId: String = "21m00Tcm4TlvDq8ikWAM" // Rachel (default)
     var channelToken: String = ""
 
+    // Direct Mode settings
+    var appConnectionMode: AppConnectionMode = .direct
+    var vlmProvider: VLMProvider = .gemini
+    var selectedModelId: String = "gemini-2.5-flash"
+    var maxConversationHistory: Int = 10
+
     var baseURL: URL {
         URL(string: "http://\(gatewayHost):\(gatewayPort)")!
     }
