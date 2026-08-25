@@ -50,7 +50,12 @@ class SessionViewModel: ObservableObject {
 
     let bridge: ClaudeBridge
     var directClient: DirectVLMClient?
-    private var vlmService: VLMService { config.appConnectionMode == .direct ? (directClient ?? bridge) : bridge }
+    private var vlmService: VLMService {
+        if config.appConnectionMode == .direct, let client = directClient {
+            return client
+        }
+        return bridge
+    }
     let speechManager = SpeechManager()
     let cameraManager = CameraManager()
     let rayBanManager = RayBanManager()
