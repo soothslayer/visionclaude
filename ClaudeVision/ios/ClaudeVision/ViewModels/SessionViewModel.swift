@@ -138,7 +138,15 @@ class SessionViewModel: ObservableObject {
                     self.state = .idle
                     self.errorMessage = nil
                     try? AudioSessionManager.shared.configureForVoiceChat()
-                    self.startActiveFrameSource()
+                    if self.config.appConnectionMode != .voiceCommand {
+                        self.startActiveFrameSource()
+                    } else {
+                        // Delay audio routing slightly for Bluetooth in voice mode
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                            AudioSessionManager.shared.routeToBluetoothMicIfAvailable()
+                            self.startListening()
+                        }
+                    }
                 }
             }
         }
@@ -265,8 +273,10 @@ class SessionViewModel: ObservableObject {
     func disconnect() {
         speechManager.stopListening()
         speechManager.stopSpeaking()
-        cameraManager.stop()
-        rayBanManager.stop()
+        if config.appConnectionMode != .voiceCommand {
+            cameraManager.stop()
+            rayBanManager.stop()
+        }
         if config.appConnectionMode == .direct {
             directClient?.disconnect()
         } else {
@@ -284,6 +294,8 @@ class SessionViewModel: ObservableObject {
     // MARK: - Frame Source
 
     private func switchFrameSource() {
+        guard config.appConnectionMode != .voiceCommand else { return }
+        
         cameraManager.stop()
         rayBanManager.stop()
 
@@ -404,13 +416,19 @@ class SessionViewModel: ObservableObject {
         // Grab latest frame
         var image: Data?
         let source: String
-        switch activeFrameSource {
-        case .iPhone:
-            image = cameraManager.consumeFrame()
-            source = "iphone"
-        case .rayBan:
-            image = rayBanManager.consumeFrame()
-            source = "rayban"
+        
+        if config.appConnectionMode == .voiceCommand {
+            image = nil
+            source = "glasses-mic"
+        } else {
+            switch activeFrameSource {
+            case .iPhone:
+                image = cameraManager.consumeFrame()
+                source = "iphone"
+            case .rayBan:
+                image = rayBanManager.consumeFrame()
+                source = "rayban"
+            }
         }
 
         if config.appConnectionMode == .direct {

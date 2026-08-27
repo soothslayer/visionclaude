@@ -4,6 +4,7 @@ import Foundation
 enum AppConnectionMode: String, Codable, CaseIterable, Identifiable {
     case channel = "Channel"    // Existing: PC server via WebSocket
     case direct = "Direct"      // New: Direct VLM API from phone
+    case voiceCommand = "Voice Command" // PC server via WebSocket (voice only, no camera)
     var id: String { rawValue }
 }
 

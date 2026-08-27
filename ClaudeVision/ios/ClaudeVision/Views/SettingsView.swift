@@ -28,8 +28,8 @@ struct SettingsView: View {
                 // -- Connection Mode --
                 connectionModeSection
 
-                // -- Server Settings (Channel Mode only) --
-                if config.appConnectionMode == .channel {
+                // -- Server Settings (Channel & Voice Mode) --
+                if config.appConnectionMode == .channel || config.appConnectionMode == .voiceCommand {
                     serverSection
                 }
 
@@ -42,7 +42,9 @@ struct SettingsView: View {
                 modesSection
 
                 // -- Camera Source --
-                cameraSection
+                if config.appConnectionMode != .voiceCommand {
+                    cameraSection
+                }
 
                 // -- Meta Ray-Ban Glasses --
                 rayBanSection
@@ -126,7 +128,7 @@ struct SettingsView: View {
             Picker("Mode", selection: $config.appConnectionMode) {
                 ForEach(AppConnectionMode.allCases) { mode in
                     HStack {
-                        Image(systemName: mode == .channel ? "desktopcomputer" : "iphone")
+                        Image(systemName: mode == .channel ? "desktopcomputer" : (mode == .voiceCommand ? "mic.fill" : "iphone"))
                         Text(mode.rawValue)
                     }
                     .tag(mode)
@@ -142,7 +144,9 @@ struct SettingsView: View {
         } footer: {
             Text(config.appConnectionMode == .channel
                  ? "Channel Mode connects to a PC running Claude Code. Requires your PC and phone on the same network."
-                 : "Direct Mode calls AI APIs straight from your phone. No PC needed — just enter your API key.")
+                 : (config.appConnectionMode == .voiceCommand 
+                    ? "Voice Command mode uses only your glasses microphone to control Claude Code on your PC. No camera is used." 
+                    : "Direct Mode calls AI APIs straight from your phone. No PC needed — just enter your API key."))
         }
     }
 

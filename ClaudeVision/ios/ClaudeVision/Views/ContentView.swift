@@ -56,8 +56,10 @@ struct ContentView: View {
                     .padding(.top, 4)
 
                 // -- Mode Selector Bar --
-                modeSelector
-                    .padding(.top, 6)
+                if viewModel.config.appConnectionMode != .voiceCommand {
+                    modeSelector
+                        .padding(.top, 6)
+                }
 
                 // -- Quick Actions (shown briefly on mode change) --
                 if showQuickActions {
@@ -156,7 +158,33 @@ struct ContentView: View {
 
     @ViewBuilder
     private var cameraLayer: some View {
-        if viewModel.activeFrameSource == .iPhone {
+        if viewModel.config.appConnectionMode == .voiceCommand {
+            ZStack {
+                Color.black
+                VStack(spacing: 24) {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 80, weight: .thin))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.anthropicOrange, .purple],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .symbolEffect(.pulse, options: .repeating, isActive: viewModel.state == .listening)
+                        .shadow(color: .anthropicOrange.opacity(viewModel.state == .listening ? 0.6 : 0), radius: 20)
+                    
+                    Text("Voice Command Mode")
+                        .font(.title2.weight(.medium))
+                        .foregroundStyle(.white)
+                    
+                    Text("No camera feed active.\nSpeak commands to your PC.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            }
+        } else if viewModel.activeFrameSource == .iPhone {
             CameraPreviewView(session: viewModel.cameraManager.captureSession)
         } else {
             ZStack {
