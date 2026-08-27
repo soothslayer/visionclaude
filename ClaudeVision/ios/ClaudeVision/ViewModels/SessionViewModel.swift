@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import UIKit
+import MediaPlayer
 
 enum SessionState: String {
     case disconnected = "Disconnected"
@@ -67,6 +68,7 @@ class SessionViewModel: ObservableObject {
         setupBindings()
         setupBridgeCallbacks()
         setupCodeDetection()
+        setupRemoteCommandCenter()
         rayBanManager.startMonitoringRegistration()
         connectionMode = config.appConnectionMode
         if config.appConnectionMode == .direct {
@@ -119,7 +121,11 @@ class SessionViewModel: ObservableObject {
                     self.speechManager.playRemoteAudio(url: url) { [weak self] in
                         Task { @MainActor in
                             guard let self, self.isConnected, self.state == .speaking else { return }
-                            self.startListening()
+                            if self.config.appConnectionMode != .voiceCommand {
+                                self.startListening()
+                            } else {
+                                self.state = .idle
+                            }
                         }
                     }
                 } else {
@@ -144,7 +150,8 @@ class SessionViewModel: ObservableObject {
                         // Delay audio routing slightly for Bluetooth in voice mode
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                             AudioSessionManager.shared.routeToBluetoothMicIfAvailable()
-                            self.startListening()
+                            // Wait for tap in Voice Command Mode
+                            self.state = .idle
                         }
                     }
                 }
@@ -225,6 +232,38 @@ class SessionViewModel: ObservableObject {
         codeToastDetectedCode = nil
         let message = "I scanned a \(code.type) code: \(code.value). What is this?"
         Task { await self.sendText(message) }
+    }
+
+    // MARK: - Remote Commands (Glasses Taps)
+
+    private func setupRemoteCommandCenter() {
+        UIApplication.shared.beginReceivingRemoteControlEvents()
+        
+        let commandCenter = MPRemoteCommandCenter.shared()
+        commandCenter.togglePlayPauseCommand.isEnabled = true
+        commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                self?.toggleListening()
+            }
+            return .success
+        }
+        
+        // Some headsets send explicit play/pause
+        commandCenter.playCommand.isEnabled = true
+        commandCenter.playCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                self?.toggleListening()
+            }
+            return .success
+        }
+        
+        commandCenter.pauseCommand.isEnabled = true
+        commandCenter.pauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                self?.toggleListening()
+            }
+            return .success
+        }
     }
 
     func copyCodeToClipboard(_ code: DetectedCode) {
@@ -487,7 +526,11 @@ class SessionViewModel: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self, self.isConnected, self.state == .speaking else { return }
-                self.startListening()
+                if self.config.appConnectionMode != .voiceCommand {
+                    self.startListening()
+                } else {
+                    self.state = .idle
+                }
             }
             .store(in: &cancellables)
     }

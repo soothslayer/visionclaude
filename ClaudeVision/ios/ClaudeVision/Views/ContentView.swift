@@ -178,7 +178,7 @@ struct ContentView: View {
                         .font(.title2.weight(.medium))
                         .foregroundStyle(.white)
                     
-                    Text("No camera feed active.\nSpeak commands to your PC.")
+                    Text("No camera feed active.\nTap your glasses to speak a command.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
