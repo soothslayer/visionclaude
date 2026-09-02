@@ -60,6 +60,7 @@ class SessionViewModel: ObservableObject {
     let speechManager = SpeechManager()
     let cameraManager = CameraManager()
     let rayBanManager = RayBanManager()
+    let knowledgeBaseManager = KnowledgeBaseManager()
     private var cancellables = Set<AnyCancellable>()
 
     init(config: ClaudeConfig = ClaudeConfig.load()) {
@@ -450,7 +451,18 @@ class SessionViewModel: ObservableObject {
 
         // Prepend mode system prompt as context
         let modeContext = modeManager.activeMode.systemPrompt
-        let systemPrompt = "[Mode: \(modeManager.activeMode.name)] \(modeContext)"
+        
+        // Retrieve relevant knowledge base chunks
+        let kbChunks = knowledgeBaseManager.search(query: text, modeId: modeManager.activeMode.id)
+        let kbContext: String
+        if kbChunks.isEmpty {
+            kbContext = ""
+        } else {
+            let chunksText = kbChunks.map { "---\n\($0.text)" }.joined(separator: "\n")
+            kbContext = "\n\nREFERENCE DOCUMENTATION:\n\(chunksText)\n\nUse the above reference documentation to answer accurately. If the documentation doesn't cover the topic, say so and provide your best general knowledge."
+        }
+        
+        let systemPrompt = "[Mode: \(modeManager.activeMode.name)] \(modeContext)\(kbContext)"
 
         // Grab latest frame
         var image: Data?

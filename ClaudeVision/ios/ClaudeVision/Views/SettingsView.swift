@@ -7,6 +7,7 @@ struct SettingsView: View {
     let frameSourceStatus: FrameSourceStatus
     let rayBanManager: RayBanManager
     @ObservedObject var modeManager: ModeManager
+    @ObservedObject var knowledgeBaseManager: KnowledgeBaseManager
     let onConnect: () -> Void
     let onConnectGlasses: () -> Void
     @Environment(\.dismiss) private var dismiss
@@ -15,6 +16,7 @@ struct SettingsView: View {
     @State private var showRayBanInstructions = false
     @State private var showAddCustomMode = false
     @State private var showAPIKey = false
+    @State private var showKnowledgeBase: VisionMode?
 
     // Anthropic brand accent
     private let accentColor = Color(red: 232/255, green: 123/255, blue: 53/255)
@@ -64,6 +66,9 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showAddCustomMode) {
                 AddCustomModeView(modeManager: modeManager)
+            }
+            .sheet(item: $showKnowledgeBase) { mode in
+                KnowledgeBaseView(mode: mode, kbManager: knowledgeBaseManager)
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -405,7 +410,37 @@ struct SettingsView: View {
                             .foregroundStyle(mode.swiftColor)
                     }
                     Text(mode.name)
+                    
                     Spacer()
+                    
+                    // Knowledge Base badge
+                    let kbCount = knowledgeBaseManager.totalChunks(for: mode.id)
+                    if kbCount > 0 {
+                        Button {
+                            showKnowledgeBase = mode
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "books.vertical.fill")
+                                    .font(.system(size: 10))
+                                Text("\(kbCount)")
+                                    .font(.caption2.monospacedDigit())
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(mode.swiftColor.opacity(0.15))
+                            .clipShape(Capsule())
+                            .foregroundStyle(mode.swiftColor)
+                        }
+                    } else {
+                        Button {
+                            showKnowledgeBase = mode
+                        } label: {
+                            Image(systemName: "plus.circle")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    
                     Toggle("", isOn: Binding(
                         get: { modeManager.isBuiltInModeVisible(mode.id) },
                         set: { _ in modeManager.toggleBuiltInModeVisibility(id: mode.id) }

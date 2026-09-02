@@ -127,6 +127,7 @@ struct ContentView: View {
                 frameSourceStatus: viewModel.frameSourceStatus,
                 rayBanManager: viewModel.rayBanManager,
                 modeManager: viewModel.modeManager,
+                knowledgeBaseManager: viewModel.knowledgeBaseManager,
                 onConnect: { Task { await viewModel.connect() } },
                 onConnectGlasses: { Task { await viewModel.connectGlasses() } }
             )
